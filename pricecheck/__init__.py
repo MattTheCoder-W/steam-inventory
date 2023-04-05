@@ -1,0 +1,1 @@
+from .pricecheck import Scraper
