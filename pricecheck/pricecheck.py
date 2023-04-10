@@ -11,7 +11,7 @@ from .loader import Loader
 class Browser:
     def __init__(self):
         options = Options()
-        options.headless = False
+        options.headless = True
         rotator = UserAgent()
         ua = rotator.get_random_user_agent()
         options.add_argument(f"user-agent={ua}")
@@ -40,12 +40,12 @@ class Browser:
         if n_items <= 0:
             return []
 
-        url = f"https://www.google.com/search?q={quote_plus(query)}"
+        # url = f"https://www.google.com/search?q={quote_plus(query)}"
+        url = f"https://duckduckgo.com/?q={quote_plus(query)}"
 
-        print(f"[info] searching: `{query}` -> `{url}`")
+        # print(f"[info] searching: `{query}` -> `{url}`")
 
         self.driver.get(url)
-        time.sleep(0.5)
 
         try:
             if self.driver.find_element(By.CSS_SELECTOR, "iframe[title='reCAPTCHA']"):
@@ -54,13 +54,14 @@ class Browser:
         except:
             pass
 
-        item_selector = "div.yuRUbf"
+        # item_selector = "div.yuRUbf"
+        item_selector = "div.nrn-react-div"
 
         queried = False
         while True:
             results = self.driver.find_elements(By.CSS_SELECTOR, item_selector)
             if not results:
-                print("[warning] no results found")
+                # print("[warning] no results found")
                 if queried:
                     return []
                 time.sleep(1)
@@ -68,31 +69,60 @@ class Browser:
                 continue
             break
         
-        print(f"Found {len(results)} results")
+        # print(f"Found {len(results)} results")
         if n_items > len(results):
             n_items = len(results)
 
         urls = []
         for item in results[:n_items]:
-            link = item.find_element(By.CSS_SELECTOR, "a")
+            link = item.find_element(By.CSS_SELECTOR, 'a[data-testid="result-title-a"]')
             urls.append(link.get_attribute("href"))
         
-        print(f"Scraped {len(urls)} elements")
+        # print(f"Scraped {len(urls)} elements")
         return urls
 
+    def scrape_price(self, data: dict):
+        if not data['url']:
+            print("No URL!")
+            return None
+
+        self.driver.add_cookie({"name":"currency","domain":"csgostash.com","value":"eyJpdiI6InlubmZoYmhkRVEwQkZGa2dkY21SZXc9PSIsInZhbHVlIjoiUGwvYjdPN3l1ZmNvVGNGMUpad0tRSUorVmZ6Ty9LcDRDR2VRTHZOb3ZhVU90NmpzQ0g1Mlp0L2xHUG02ejJRTiIsIm1hYyI6ImM4MTkwYjAxODdlMTdhN2IyMzY1ZGVhOTMxNWJlZTA4ZDI3NzA0YWI4Nzc2M2FkZjY1OTkwNjBiNDNjNGRiNzUiLCJ0YWciOiIifQ"})
+        self.driver.get(data['url'])
+
+        price_element = self.driver.find_element(By.CSS_SELECTOR, 'a.btn.btn-default.market-button-item')
+        price_value = price_element.text
+        print(f"Value is: {price_value}")
+        return price_value
 
 class Scraper:
     def __init__(self):
-        self.loader = Loader("table.xlsx")
+        self.loader = Loader("stage-2.xlsx")
         self.browser = Browser()
 
-        for item in self.loader.data:
-            print(f"Item: {item['name']}")
+        for i, item in enumerate(self.loader.data):
+            if item['url']:
+                print("[info] item already has url, skipping!")
+                continue
+            print(f"[{i+1}/{len(self.loader.data)}] Item: {item['name']}")
             price = item['price']
-            query = f"{item['name']} site:csgostash.com"
+            query = f"{item['name']} {item['type']} site:csgostash.com"
             urls = self.browser.search(query, n_items=1)
             if not urls:
                 print("[warning] items not found for item")
                 continue
-            print(f"[data] item url: {urls[0]}")
-        # print("Found:", self.browser.search("fnatic (gold) site:csgostash.com"))
+            self.loader.data[i]['url'] = urls[0]
+        
+        self.loader.save_urls("stage-3.xlsx")
+
+        self.check_prices()
+    
+    def check_prices(self):
+        self.browser.driver.get(self.loader.data[0]['url'])
+        for i, item in enumerate(self.loader.data):
+            print(f"[{i+1}/{len(self.loader.data)}] Scraping item: {item['name']}")
+            price = self.browser.scrape_price(item)
+            self.loader.data[i]['last_price'] = price
+        
+        self.loader.save_prices("stage-3.xlsx")
+
+
